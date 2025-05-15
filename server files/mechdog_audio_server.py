@@ -1,77 +1,43 @@
-# from flask import Flask, request, Response
-# import sounddevice as sd
-# import numpy as np
-
-# app = Flask(__name__)
-
-# # Audio parameters (must match ESP32)
-# SAMPLE_RATE = 16000
-# CHANNELS = 1
-# DTYPE = 'int16'  # 16-bit audio
-
-# @app.route('/upload', methods=['POST'])
-# def upload_audio():
-#     try:
-#         raw_audio = request.data  # raw bytes sent from ESP32
-        
-#         # Convert bytes to numpy array
-#         audio_data = np.frombuffer(raw_audio, dtype=DTYPE)
-
-#         # Play audio data asynchronously
-#         sd.play(audio_data, samplerate=SAMPLE_RATE)
-        
-#         # Optional: wait for playback to finish before responding
-#         sd.wait()
-
-#         return Response("Audio received and played", status=200)
-#     except Exception as e:
-#         print(f"Error processing audio: {e}")
-#         return Response(f"Error: {e}", status=500)
-
-# if __name__ == '__main__':
-#     print("🟢 HTTP server running at http://0.0.0.0:12345/upload")
-#     app.run(host='0.0.0.0', port=12345)
-
-
 from flask import Flask, request, jsonify
 import numpy as np
 import sounddevice as sd
 import threading
+from scipy.io.wavfile import write as write_wav  # Import write function from scipy.io.wavfile
+import os  # For managing file paths
+
+#define SERVER_URL      "http://192.168.137.1:12345/upload"
 
 app = Flask(__name__)
 
 # Audio parameters
 SAMPLE_RATE = 16000
-CHANNELS = 2
+CHANNELS = 1  # Assuming stereo audio based on your current code's reshape logic
 DTYPE = np.int16
 
-def play_audio(data_bytes):
-    """Play received audio using sounddevice."""
-    # Convert to numpy array
+# Define a path to save the received WAV file
+OUTPUT_WAV_FILENAME = "received_audio.wav"
+
+
+def play_and_save_audio(data_bytes):
     audio_data = np.frombuffer(data_bytes, dtype=DTYPE)
-    
-    # Reshape to stereo (2 channels)
+    processed_audio_data = audio_data # No reshaping needed for mono
+
+    # Save the audio to a WAV file
     try:
-        stereo = audio_data.reshape(-1, CHANNELS)
-    except ValueError:
-        print("❌ Invalid audio length for stereo playback")
-        return
+        write_wav(OUTPUT_WAV_FILENAME, SAMPLE_RATE, processed_audio_data)
+        print(f"💾 Audio saved as '{OUTPUT_WAV_FILENAME}'")
+    except Exception as e:
+        print(f"❌ Error saving WAV file: {e}")
 
+    # Play audio
     print("▶️ Playing audio...")
-    # sd.play(stereo, SAMPLE_RATE)
-    stereo = audio_data.reshape(-1, CHANNELS)
+    try:
+        sd.play(processed_audio_data, SAMPLE_RATE)
+        sd.wait()
+        print("✅ Playback done")
+    except Exception as e:
+        print(f"❌ Error during audio playback: {e}")
 
-    # Uncomment one to test individual channels:
-    left = stereo[:, 0]
-    right = stereo[:, 1]
-    # sd.play(left, SAMPLE_RATE)      # Play only left
-    sd.play(right, SAMPLE_RATE)     # Play only right
-    sd.wait()
-
-    # Default: play both
-    # sd.play(stereo, SAMPLE_RATE)
-    sd.wait()
-    print("✅ Playback done")
 
 @app.route("/upload", methods=["POST"])
 def upload_audio():
@@ -79,11 +45,13 @@ def upload_audio():
         audio_data = request.get_data()
         print(f"📥 Received {len(audio_data)} bytes")
 
-        # Playback in separate thread so we don't block HTTP response
-        threading.Thread(target=play_audio, args=(audio_data,), daemon=True).start()
+        # Start playback and saving in a separate thread so we don't block HTTP response
+        threading.Thread(target=play_and_save_audio, args=(audio_data,), daemon=True).start()
 
-        return jsonify({"status": "success", "bytes_received": len(audio_data)}), 200
+        return jsonify({"status": "success", "bytes_received": len(audio_data), "saved_as": OUTPUT_WAV_FILENAME}), 200
+
 
 if __name__ == "__main__":
     print("🎧 Starting server on http://0.0.0.0:12345/upload")
+    print(f"🚀 Received audio will be saved to '{os.path.abspath(OUTPUT_WAV_FILENAME)}'")
     app.run(host="0.0.0.0", port=12345)
