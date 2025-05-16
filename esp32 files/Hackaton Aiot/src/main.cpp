@@ -1,52 +1,55 @@
+// working skecth from 05:16
+//  AIOT Hackaton 2025
+//  ESP32 Audio Recorder
+
+#include <Arduino.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
-#include <driver/i2s.h>
-#include "led_functions.hpp"
+#include <algorithm>
+#include "driver/i2s.h"
 
-// WiFi Credentials
+#define I2S_WS      41
+#define I2S_SCK     40
+#define I2S_SD      39
+
+#define BUTTON_PIN      17 // Define the button pin
+#define LED_PIN     48 // Define the LED pin
+
+#define SAMPLE_RATE     16000
+#define SAMPLE_BITS     I2S_BITS_PER_SAMPLE_16BIT
+#define I2S_PORT        I2S_NUM_0
+#define CHANNEL_COUNT   1
+#define RECORD_SECONDS  5
+#define BYTES_PER_SAMPLE 2  // 16 bits = 2 bytes
+
+#define RECORD_SIZE     (SAMPLE_RATE * RECORD_SECONDS * BYTES_PER_SAMPLE) // 160000 bytes
+#define CHUNK_SIZE      512
+// #define SERVER_URL      "http://192.168.137.1:12345/upload"
+#define SERVER_URL "http://132.69.207.21:12345/upload"
+
 const char* ssid = "Mechdog";
 const char* password = "Mechdog1!";
 
-// Server URL
-const char* serverUrl = "http://192.168.137.1:12345/upload";  // Replace with your PC's IP
-
-// I2S Pins (adjust if needed)
-#define I2S_WS 35
-#define I2S_SD 38
-#define I2S_SCK 14
-
-// Audio Config
-#define SAMPLE_RATE 16000
-#define RECORD_SECONDS 1
-#define SAMPLE_COUNT (SAMPLE_RATE * RECORD_SECONDS)
-#define I2S_NUM I2S_NUM_0
-
-int16_t audioBuffer[SAMPLE_COUNT];
-
 void setupWiFi() {
-  Serial.print("Connecting to WiFi");
   WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi");
   while (WiFi.status() != WL_CONNECTED) {
-    delay(300);
+    delay(500);
     Serial.print(".");
   }
-  Serial.println("\nWiFi connected!");
-  Serial.print("IP Address: ");
-  Serial.println(WiFi.localIP());
-  turnOnBlueLED(); // 🔵 On when connected
-  
+  Serial.println("\nConnected. IP: " + WiFi.localIP().toString());
 }
 
 void setupI2S() {
   i2s_config_t config = {
-    .mode = i2s_mode_t(I2S_MODE_MASTER | I2S_MODE_RX),
+    .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
     .sample_rate = SAMPLE_RATE,
-    .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
+    .bits_per_sample = SAMPLE_BITS,
     .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
-    .communication_format = I2S_COMM_FORMAT_STAND_MSB,
+    .communication_format = I2S_COMM_FORMAT_STAND_I2S,
     .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
     .dma_buf_count = 4,
-    .dma_buf_len = 512,
+    .dma_buf_len = CHUNK_SIZE / 2,
     .use_apll = false,
     .tx_desc_auto_clear = false,
     .fixed_mclk = 0
@@ -59,91 +62,70 @@ void setupI2S() {
     .data_in_num = I2S_SD
   };
 
-  i2s_driver_install(I2S_NUM, &config, 0, NULL);
-  i2s_set_pin(I2S_NUM, &pin_config);
-  i2s_zero_dma_buffer(I2S_NUM);
+  i2s_driver_install(I2S_PORT, &config, 0, nullptr);
+  i2s_set_pin(I2S_PORT, &pin_config);
 }
 
-void recordAudio() {
-  size_t bytesRead = 0;
-  int16_t* ptr = audioBuffer;
-  size_t totalRead = 0;
-
-  Serial.println("🎙️ Recording...");
-
-  while (totalRead < SAMPLE_COUNT * sizeof(int16_t)) {
-    i2s_read(I2S_NUM, ptr, (SAMPLE_COUNT * sizeof(int16_t)) - totalRead, &bytesRead, portMAX_DELAY);
-    ptr += bytesRead / sizeof(int16_t);
-    totalRead += bytesRead;
+void sendBuffer(uint8_t* buffer, size_t len) {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi not connected. Skipping send.");
+    return;
   }
 
-  Serial.println("✅ Recording done");
+  HTTPClient http;
+  http.begin(SERVER_URL);
+  http.addHeader("Content-Type", "application/octet-stream");
+
+  int httpResponseCode = http.POST(buffer, len);
+  Serial.printf("POST %d bytes -> HTTP %d\n", len, httpResponseCode);
+
+  http.end();
 }
-
-// Send a simple text message to server instead of audio
-void sendToServer() {
-  Serial.println("📡 Sending test message...");
-
-  if ((WiFi.status() == WL_CONNECTED)) {
-    HTTPClient http;
-    http.begin(serverUrl);
-    http.addHeader("Content-Type", "text/plain");
-
-    int httpResponseCode = http.POST("Hello from ESP32-S3!");
-
-    if (httpResponseCode > 0) {
-      Serial.print("✅ Server responded: ");
-      Serial.println(httpResponseCode);
-      String payload = http.getString();
-      Serial.println("📬 Response: " + payload);
-      blinkRedLED();  // 🔴 blink on successful response
-    } else {
-      Serial.print("❌ Error sending: ");
-      Serial.println(http.errorToString(httpResponseCode));
-    }
-
-    http.end();
-  } else {
-    Serial.println("❌ WiFi disconnected");
-  }
-}
-// Uncomment the following function to send audio data instead of a text message
-// void sendToServer() {
-//   Serial.println("📡 Sending audio...");
-
-//   if ((WiFi.status() == WL_CONNECTED)) {
-//     HTTPClient http;
-//     http.begin(serverUrl);
-//     http.addHeader("Content-Type", "application/octet-stream");
-
-//     int httpResponseCode = http.POST((uint8_t*)audioBuffer, sizeof(audioBuffer));
-
-//     if (httpResponseCode > 0) {
-//       Serial.print("✅ Server responded: ");
-//       Serial.println(httpResponseCode);
-//       String payload = http.getString();
-//       Serial.println("📬 Response: " + payload);
-//     } else {
-//       Serial.print("❌ Error sending: ");
-//       Serial.println(http.errorToString(httpResponseCode));
-//     }
-
-//     http.end();
-//   } else {
-//     Serial.println("❌ WiFi disconnected");
-//   }
-// }
 
 void setup() {
   Serial.begin(115200);
+  Serial.println("Starting ESP32 Audio Recorder...");
   setupWiFi();
   setupI2S();
-  setupLEDs();
-  
+
+  pinMode(BUTTON_PIN, INPUT_PULLUP); // Initialize the button pin as input with pull-up
+  Serial.println("Button initialized.");
 }
 
 void loop() {
-  delay(3000); // Wait before each sample
-  recordAudio();
-  sendToServer();
+  Serial.println("Waiting for button press to start recording...");
+  while (digitalRead(BUTTON_PIN) == HIGH) { // Wait until the button is pressed (LOW)
+    delay(100); // Small delay to avoid constant checking
+  }
+  digitalWrite(LED_PIN, HIGH); // Turn on the LED to indicate recording
+  Serial.println("Button pressed! Starting recording...");
+  static uint8_t audioBuffer[RECORD_SIZE];
+  size_t totalRead = 0;
+
+  Serial.println("Recording 5 seconds of audio...");
+  
+
+  while (totalRead < RECORD_SIZE) {
+    Serial.printf("Read %d bytes\n", totalRead);
+    size_t bytesToRead = (CHUNK_SIZE < (RECORD_SIZE - totalRead)) ? CHUNK_SIZE : (RECORD_SIZE - totalRead);
+    size_t bytesRead = 0;
+    esp_err_t result = i2s_read(I2S_PORT, audioBuffer + totalRead, bytesToRead, &bytesRead, portMAX_DELAY);
+
+    if (result == ESP_OK && bytesRead > 0) {
+      totalRead += bytesRead;
+    } else {
+      Serial.println("I2S read failed.");
+      break;
+    }
+  }
+  Serial.printf("Recording complete: %d bytes\nSending to server...\n", totalRead);
+  sendBuffer(audioBuffer, totalRead);
+
+  Serial.println("Waiting for button release...");
+  while (digitalRead(BUTTON_PIN) == LOW) { // Wait until the button is released (HIGH)
+    delay(100); // Small delay for debouncing
+  }
+  Serial.println("Button released. Ready for next recording.");
+
+  delay(1000); // Short delay before checking the button again
 }
