@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robot Camera Control</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin-top: 50px;
+            background-color: #f0f0f0;
+        }
+        #cameraFeed {
+            border: 2px solid #333;
+            max-width: 80%;
+            height: auto;
+            display: block;
+            margin: 20px auto;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        #status {
+            margin-top: 20px;
+            font-size: 1.1em;
+            color: #555;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 1em;
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <h1>Robot Camera Control</h1>
+    <p>ESP32 Camera IP: <span id="esp32_ip_display">{{ esp32_ip }}</span></p> <button id="triggerButton">Take Photo Now</button>
+    <p>Latest image captured by the robot:</p>
+    <img id="cameraFeed" src="/static/latest_image.jpeg?_t=0" alt="Camera Feed">
+    <div id="status">Waiting for image...</div>
+
+    <script>
+        const cameraFeed = document.getElementById('cameraFeed');
+        const statusDiv = document.getElementById('status');
+        const triggerButton = document.getElementById('triggerButton');
+        let updateCount = 0;
+        const esp32Ip = "{{ esp32_ip }}"; // Get ESP32 IP from Flask
+
+        document.getElementById('esp32_ip_display').textContent = esp32Ip;
+
+
+        async function triggerPhoto() {
+            triggerButton.disabled = true; // Disable button to prevent multiple clicks
+            statusDiv.textContent = "Sending trigger to ESP32...";
+            try {
+                // This fetches from YOUR FLASK SERVER, which then contacts the ESP32
+                const response = await fetch('/trigger_photo_capture', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json' // Or 'application/x-www-form-urlencoded' if you prefer
+                    }
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    statusDiv.textContent = "Trigger sent to ESP32! Waiting for image upload...";
+                    // Give ESP32 some time to capture and upload the image
+                    // Then refresh the image displayed on the page
+                    setTimeout(refreshImage, 3000); // Adjust delay as needed
+                } else {
+                    statusDiv.textContent = `Error sending trigger: ${data.message}`;
+                    console.error('Trigger error:', data.message);
+                }
+            } catch (error) {
+                statusDiv.textContent = `Network error sending trigger: ${error}`;
+                console.error('Network error:', error);
+            } finally {
+                // Re-enable the button after a short delay
+                setTimeout(() => { triggerButton.disabled = false; }, 2000);
+            }
+        }
+
+        function refreshImage() {
+            updateCount++;
+            // Append a timestamp to the image URL to force the browser to reload it
+            const imageUrl = `/static/latest_image.jpeg?_t=${Date.now()}`;
+            cameraFeed.src = imageUrl;
+            statusDiv.textContent = `Image updated at ${new Date().toLocaleTimeString()} (Refresh count: ${updateCount})`;
+        }
+
+        // Add event listener for the button
+        triggerButton.addEventListener('click', triggerPhoto);
+
+        // Keep refreshing the image periodically (useful if you want to see updates even without clicking)
+        // You might consider removing this if you truly only want updates on trigger.
+        setInterval(refreshImage, 5000);
+
+        // Initial image load
+        refreshImage();
+    </script>
+</body>
+</html>
