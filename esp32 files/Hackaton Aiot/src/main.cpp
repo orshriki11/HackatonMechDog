@@ -1,6 +1,7 @@
-// working skecth from 05:16
-//  AIOT Hackaton 2025
-//  ESP32 Audio Recorder
+//  working skecth from 05:16
+//  Create by Or and Roee for the AIoT Hackaton 2025 by the Technion ECE faculty 
+//  ESP32 Smart Audio Recorder for the Mechdog project
+//  This sketch records audio from an I2S microphone and sends it to a server via HTTP POST.
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -24,11 +25,10 @@
 
 #define RECORD_SIZE     (SAMPLE_RATE * RECORD_SECONDS * BYTES_PER_SAMPLE) // 160000 bytes
 #define CHUNK_SIZE      512
-// #define SERVER_URL      "http://192.168.137.1:12345/upload"
-#define SERVER_URL "http://132.69.207.21:12345/upload"
+#define SERVER_URL "http://192.168.137.1:12345/upload_audio"// change to your server URL
 
-const char* ssid = "Mechdog";
-const char* password = "Mechdog1!";
+const char* ssid = "Mechdog"; // change to your WiFi SSID
+const char* password = "Mechdog1!"; // change to your WiFi password
 
 void setupWiFi() {
   WiFi.begin(ssid, password);

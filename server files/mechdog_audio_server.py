@@ -1,3 +1,7 @@
+# Audio server that receives audio data, transcribes it, generates a response using OpenAI's API, and plays the audio.
+# The code was created for the MechDog project part of the AIoT Hackathon 2025
+
+
 from flask import Flask, request, jsonify, send_file
 import numpy as np
 import sounddevice as sd
@@ -22,7 +26,7 @@ OUTPUT_WAV_FILENAME = "received_audio.wav"
 
 # OpenAI API Key
 # Make sure to set your OpenAI API key in the environment variable
-# OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_API_KEY = ""# Set your OpenAI API key here
 openai.api_key = OPENAI_API_KEY
 
 # Constants for OpenAI API limits
@@ -30,7 +34,7 @@ MAX_TOKENS = 100  # Maximum tokens in the response
 TIMEOUT_SECONDS = 10  # Timeout for the OpenAI API request
 TTS_MODEL = "gpt-4o-mini-tts"  # The cheapest TTS model
 TTS_VOICE = "alloy"  # Pick a voice
-ESP32_URL = "http://192.168.137.124/capture"  # Replace with your ESP32's URL  # Added ESP32 URL
+# ESP32_URL = "http://192.168.137.124/capture"  # Replace with your ESP32's URL  # Added ESP32 URL
 
 
 def play_and_save_audio(data_bytes):
@@ -202,7 +206,7 @@ def send_capture_signal():
 
 
 
-@app.route("/upload", methods=["POST"])
+@app.route("/upload_audio", methods=["POST"])
 def upload_audio():
     """
     Handles the audio upload, saves it, transcribes it, and gets an OpenAI response.
@@ -231,7 +235,7 @@ def upload_audio():
         # Check for "help" and send signal to ESP32
         if "help" in transcription.lower():
             print("🚨 \'Help\' detected! Sending signal to ESP32...")
-            threading.Thread(target=send_capture_signal).start()  # start thread
+            threading.Thread(target=send_capture_signal).start()  # start thuread
 
         # Get the OpenAI response
         openai_prompt = f"The following is the transcription of a voice recording: {transcription}.  Please provide a concise and informative answer."
